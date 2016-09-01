@@ -2,6 +2,8 @@
 #include <ctype.h>
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/ioctl.h>
 #include <curses.h>
 
 char *intprtkey(int ch);
@@ -9,30 +11,33 @@ char *intprtkey(int ch);
 static const char passwd[] = "123456";
 int row, col;
 
+#define ASZ(z) (sizeof(z) / sizeof(z[0]))
+
 char *choices[] = { 
         "NEW ENTRY",
-        "|-SEARCH",
-        "|-LIST",
-        "|-CATEGORIES",
-        "|-TAGS",
+        "  SEARCH",
+        "  LIST",
+        "  CATEGORIES",
+        "  TAGS",
+        "",
         "FLUSH",
+        "HELP",
         "EXIT",
 };
-int n_choices = sizeof(choices) / sizeof(choices[0]);
 
 void print_menu(WINDOW *menu_win, int highlight) {
         int x, y, i;
         x = 2;
         y = 2;
         box(menu_win, 0, 0);
-        for(i = 0; i < n_choices; ++i)
-        {       if(highlight == i + 1) /* High light the present choice */
-                {       wattron(menu_win, A_REVERSE); 
+        for (i = 0; i < ASZ(choices); ++i) {
+                if (highlight == i + 1) {
+                        wattron(menu_win, A_REVERSE); 
                         mvwprintw(menu_win, y, x, "%s", choices[i]);
                         wattroff(menu_win, A_REVERSE);
-                }
-                else
+                } else {
                         mvwprintw(menu_win, y, x, "%s", choices[i]);
+                }
                 ++y;
         }
         wrefresh(menu_win);
@@ -47,19 +52,19 @@ void main_menu() {
 
     keypad(menu, TRUE);
 
-retry:
+redo:
     print_menu(menu, highlight);
     while (1) {
             int c = wgetch(menu);
             switch (c) {
                     case KEY_UP:
-                            if(highlight == 1)
-                                    highlight = n_choices;
+                            if (highlight == 1)
+                                    highlight = ASZ(choices);
                             else
                                     --highlight;
                             break;
                     case KEY_DOWN:
-                            if(highlight == n_choices)
+                            if (highlight == ASZ(choices))
                                     highlight = 1;
                             else 
                                     ++highlight;
@@ -75,27 +80,50 @@ retry:
                 break;
     }
 
-    if (choice == 7)
+    if (choice == 7) {
         curs_set(1);
-    else
-        goto retry;
+        delwin(menu);
+        return;
+    }
+
+    goto redo;
+}
+
+void main_content() {
+    int highlight = 1;
+    int choice = 0;
+    WINDOW *content = newwin(row - 3, col - 20, 2, 20);
+
+    box(content, 0, 0);
+    wrefresh(content);
+    delwin(content);
+}
+
+void handle_winch(int sig){
+    struct winsize w;
+    ioctl(0, TIOCGWINSZ, &w);
+    col = w.ws_col;
+    row = w.ws_row;
+
+    wresize(stdscr, row, col);
+    clear();
+
+    refresh();
 }
 
 void mainw() {
-    WINDOW *win = newwin(row - 3, col, 2, 0);
-
     clear();
     mvprintw(1, (col - 7) / 2, "--<[ TISR ]>--");
     mvprintw(row - 1, 1, "DBOPEN | ");
     refresh();
 
-    // box(win, 0, 0);
-    wrefresh(win);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = handle_winch;
+    sigaction(SIGWINCH, &sa, NULL);
 
+    main_content();
     main_menu();
-
-    /* Done */
-    delwin(win);
 }
 
 int loginw() {
