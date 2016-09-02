@@ -7,7 +7,12 @@
 #include <curses.h>
 #include <form.h>
 
+#include "kissdb.h"
 #include "helper.h"
+
+#define TSX_VERSION "0.2"
+#define ASZ(z) (sizeof(z) / sizeof(z[0]))
+#define KEY_DEL 127
 
 void setsig();
 
@@ -15,8 +20,6 @@ static const char passwd[] = "123456";
 static int bail_request = 0;
 static int row, col;
 
-#define ASZ(z) (sizeof(z) / sizeof(z[0]))
-#define KEY_DEL 127
 
 struct mainopt {
     char name[15];
@@ -41,8 +44,8 @@ void window_title(WINDOW *win, int starty, int startx, int width, char *string, 
     wattroff(win, color);
 }
 
-void new_entry() {
-    FIELD *field[4];
+void new_tag() {
+    FIELD *field[5];
     FORM  *my_form;
     WINDOW *my_form_win;
     int ch, rows, cols;
@@ -53,7 +56,8 @@ void new_entry() {
     field[0] = new_field(1, 15, 4, 10, 0, 0);
     field[1] = new_field(1, 15, 6, 10, 0, 0);
     field[2] = new_field(1, 1, 8, 20, 0, 0);
-    field[3] = NULL;
+    field[3] = new_field(1, 1, 8, 10, 0, 0);
+    field[4] = NULL;
 
     /* Set field options */
     set_field_back(field[0], A_UNDERLINE);
@@ -66,6 +70,11 @@ void new_entry() {
     field_opts_off(field[2], O_AUTOSKIP);
     field_opts_off(field[2], O_EDIT);
     field_opts_off(field[2], O_STATIC);
+
+    set_field_back(field[3], A_REVERSE);
+    field_opts_off(field[3], O_AUTOSKIP);
+    field_opts_off(field[3], O_EDIT);
+    field_opts_off(field[3], O_STATIC);
 
     /* Create the form and post it */
     my_form = new_form(field);
@@ -82,20 +91,25 @@ void new_entry() {
     /* Print a border around the main window and print a title */
     box(my_form_win, 0, 0);
     post_form(my_form);
-    window_title(my_form_win, 1, 0, cols + 4, "NEW ENTRY", COLOR_PAIR(1));
+    window_title(my_form_win, 1, 0, cols + 4, "NEW TAG", COLOR_PAIR(1));
     wrefresh(my_form_win);
     refresh();
 
     /* Window description */
-    mvwprintw(my_form_win, 3, 2, "ADD NEW ENTRY");
+    mvwprintw(my_form_win, 3, 2, "NEW CONTROL TAG");
 
     /* Field labels */
     mvwprintw(my_form_win, 6, 2, "NAME:");
-    mvwprintw(my_form_win, 8, 2, "OPTION:");
+    mvwprintw(my_form_win, 8, 2, "CLUSTER:");
 
     /* Sumbit button */
     wattron(my_form_win, A_REVERSE);
     mvwprintw(my_form_win, 10, 20, " DONE ");
+    wattron(my_form_win, A_REVERSE);
+
+    /* Cancel button */
+    wattron(my_form_win, A_REVERSE);
+    mvwprintw(my_form_win, 10, 10, " CANCEL ");
     wattron(my_form_win, A_REVERSE);
 
     /* Set cursor at first field */
@@ -143,19 +157,30 @@ void new_entry() {
 
     curs_set(0);
     delwin(my_form_win);
-    clear();
+    // clear();
 }
 
 struct mainopt choices[] = {
-        {"NEW ENTRY", new_entry},
-        {"  SEARCH", NULL},
-        {"  LIST", NULL},
-        {"  CATEGORIES", NULL},
-        {"  TAGS", NULL},
-        {"", NULL},
-        {"FLUSH", NULL},
-        {"HELP", NULL},
-        {"EXIT", bail}
+    {"CONTROL", NULL},
+    {"- NEW RECORD", NULL},
+    {"- SEARCH", NULL},
+    {"- LIST", NULL},
+    {"- CATS", NULL},
+    {"- TAGS", NULL},
+    {"", NULL},
+    {"GROUPING", NULL},
+    {"- NEW CAT", NULL},
+    {"- NEW TAG", new_tag},
+    {"", NULL},
+    {"PROJECT", NULL},
+    {"+ CRYPT", NULL},
+    {"+ IMPRESUM", NULL},
+    {"", NULL},
+    {"RCONSOLE", NULL},
+    {"LOCK", NULL},
+    {"EMERG", NULL},
+    {"MAPASSWD", NULL},
+    {"EXIT", bail}
 };
 
 void print_menu(WINDOW *menu_win, int highlight) {
@@ -176,7 +201,17 @@ void print_menu(WINDOW *menu_win, int highlight) {
         wrefresh(menu_win);
 }
 
-void main_menu() {
+void main_view() {
+    int highlight = 1;
+    int choice = 0;
+    WINDOW *content = newwin(row - 3, col - 20, 2, 20);
+
+    box(content, 0, 0);
+    wrefresh(content);
+    delwin(content);
+}
+
+void main_content() {
     int highlight = 1;
     int choice = 0;
     WINDOW *menu = newwin(row - 3, 20, 2, 0);
@@ -186,6 +221,7 @@ void main_menu() {
     keypad(menu, TRUE);
 
 redo:
+    main_view();
     print_menu(menu, highlight);
     while (1) {
             int c = wgetch(menu);
@@ -230,16 +266,6 @@ redo:
     goto redo;
 }
 
-void main_content() {
-    int highlight = 1;
-    int choice = 0;
-    WINDOW *content = newwin(row - 3, col - 20, 2, 20);
-
-    box(content, 0, 0);
-    wrefresh(content);
-    delwin(content);
-}
-
 void handle_winch(int sig){
     struct winsize w;
     ioctl(0, TIOCGWINSZ, &w);
@@ -255,7 +281,7 @@ void handle_winch(int sig){
 void mainw() {
     clear();
     mvprintw(1, (col - 7) / 2, "--<[ TISR ]>--");
-    mvprintw(row - 1, 1, "DBOPEN | ");
+    mvprintw(row - 1, 1, "VERSION " TSX_VERSION " | DBOPEN | NOFORN | TSXR2 | AES-256-GCM-ARGON2");
     refresh();
 
     // setsig();
@@ -266,7 +292,6 @@ void mainw() {
     sigaction(SIGWINCH, &sa, NULL);
 
     main_content();
-    main_menu();
 }
 
 int loginw() {
@@ -326,14 +351,53 @@ int main(int argc, char *argv[]) {
     noecho();
 
     /* Login window */
-    // if (loginw()) {
+    if (loginw()) {
         mainw();
+
+        // KISSDB db;
+
+        // if (KISSDB_open(&db, "keystore.tsx", KISSDB_OPEN_MODE_RWREPLACE, 1024, sizeof(int), 64)) {
+        //     printf("KISSDB_open failed\n");
+        //     return 1;
+        // }
+
+        // int id = 17;
+        // char test[] = "hankje";
+
+        // if (KISSDB_put(&db, (void *)&id, (void *)&test)) {
+        //     printf("KISSDB_put failed\n");
+        //     return 1;
+        // }
+        // char out[64];
+        // memset(out, '\0', 64);
+        // int q;
+        // if ((q = KISSDB_get(&db, (void *)&id, (void *)&out))) {
+        //     printf("KISSDB_get (1) failed\n");
+        //     return 1;
+        // }
+
+        // // **
+        // KISSDB_Iterator dbi;
+        // KISSDB_Iterator_init(&db, &dbi);
+
+        // int i;
+
+        // char out2[64];
+        // memset(out2, '\0', 64);
+
+        // while (KISSDB_Iterator_next(&dbi, &i, &out2) > 0) {
+        //     mvprintw(0,0,">>%d>>%s\n", i, out2);
+        //     refresh();
+        //     sleep(1);
+        // }
+        // KISSDB_close(&db);
+        // **
 
         // clear();
         // mvaddstr(1, 2, "CLOSING DATABASE");
         // refresh();
         // sleep(1);
-    // }
+    }
 
     /*  Clean up */
     clrtoeol();
